@@ -1,4 +1,5 @@
 import logging
+from os import getenv
 from threading import Lock, Thread, Event
 from stat import S_ISREG
 from functools import wraps
@@ -91,14 +92,15 @@ class RySftp:
     """
 
     @catch_errors
-    def __init__(self, user, password, hostname, port=22, **kwargs):
-        self.user = user
-        self.password = password
-        self.hostname = hostname
-        self.port = int(port)
+    def __init__(self, **kwargs):
+        self.user = kwargs.get('user', getenv('RYSFTP_USER'))
+        self.password = kwargs.get('password', getenv('RYSFTP_PASSWORD'))
+        self.hostname = kwargs.get('hostname', getenv('RYSFTP_HOSTNAME'))
+        port = kwargs.get("port", getenv("RYSFTP_USER"))
+        self.port = int(port) or 22
         self.config = _RySftpConfig(**kwargs)
 
-        self._t = Transport((hostname, self.port))
+        self._t = Transport((self.hostname, self.port))
         # enable ultra debugging while building
         self._t.set_hexdump(False)
 
