@@ -3,6 +3,7 @@ from rysftp import RySftp
 from os import getenv
 from stat import S_ISREG
 import time
+import sys
 
 try:
     from dotenv import load_dotenv
@@ -18,7 +19,7 @@ logging.basicConfig(
 
 ry = RySftp()
 
-how_much = 100
+how_much = int(sys.argv[1])
 remotedir = getenv("RYSFTP_REMOTEDIR")
 with ry(remotedir):
     t1 = time.time()
@@ -29,7 +30,7 @@ with ry(remotedir):
     to_download = [f.filename for f in remote if S_ISREG(f.st_mode)][:how_much]
     t3 = time.time()
     for dl in to_download:
-        ry._sftp.get(dl, f"./test/{dl}")
+        ry._sftp.get(dl, f"./synchronous-{dl}")
     t4 = time.time()
     logging.debug(f"Asynchronous Download: {len(whatwegot)} files in {t2-t1} seconds")
     logging.debug(f"Synchronous Download: {len(to_download)} files in {t4-t3} seconds")
