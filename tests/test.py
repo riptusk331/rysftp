@@ -1,6 +1,7 @@
 import logging
-from crm_ftp import RySftp
+from rysftp import RySftp
 from os import getenv
+from stat import S_ISREG
 import time
 
 try:
@@ -15,12 +16,7 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
-ry = RySftp(
-    getenv("RYSFTP_USER"),
-    getenv("RYSFTP_PASSWORD"),
-    getenv("RYSFTP_HOST"),
-    overwrite_local=False,
-)
+ry = RySftp()
 
 how_much = 100
 remotedir = getenv("RYSFTP_REMOTEDIR")
