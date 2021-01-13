@@ -1,8 +1,6 @@
 import logging
-import csv
 from shutil import copy
 from datetime import date
-from typing import Union, List
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -10,12 +8,7 @@ logger = logging.getLogger(__name__)
 
 """
 
-def moveAndDateStamp(
-    src_file: Union[str, Path],
-    tgt_dir: Union[str, Path, List[Union[str, Path]]],
-    format: str = None,
-    rename: str = None,
-) -> List[Path]:
+def moveAndDateStamp(src_file, tgt_dir, format, rename):
     """
     Moves a file and stamps the date on it. Creates target directory if it doesn't exist
 
@@ -48,11 +41,7 @@ def moveAndDateStamp(
         logger.error(f'Source file "{src_file}" not found')
 
 
-def moveAndCopy(
-    src_file: Union[str, Path],
-    tgt_dir: Union[str, Path, List[Union[str, Path]]],
-    rename: str = None,
-) -> List[Path]:
+def moveAndCopy(src_file, tgt_dir, rename):
     """
     Copies a file from one location to another. Creates target directory if it doesn't exist
 
