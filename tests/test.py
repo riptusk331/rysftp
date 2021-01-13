@@ -32,4 +32,4 @@ with ry(remotedir):
         ry._sftp.get(dl, f"./test/{dl}")
     t4 = time.time()
     logging.debug(f"Asynchronous Download: {len(whatwegot)} files in {t2-t1} seconds")
-    # logging.debug(f"Synchronous Download: {len(to_download)} files in {t4-t3} seconds")
+    logging.debug(f"Synchronous Download: {len(to_download)} files in {t4-t3} seconds")
