@@ -4,7 +4,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
     setuptools.setup(
-        name="RySftp",  # Replace with your own username
+        name="RySftp",
         version="0.0.1",
         author="Ryan P Joyce",
         author_email="ryan.joyce.88@gmail.com",
