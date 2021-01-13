@@ -13,6 +13,7 @@ RySftp automatically searches for the below environment variables for connection
 |RYSFTP_USER|Username|
 |RYSFTP_PASSWORD|Password|
 |RYSFTP_HOST|Hostname|
+|RYSFTP_PORT|Port|
 |RYSFTP_REMOTEDIR| Default remote dir
 
 
