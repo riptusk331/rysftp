@@ -2,4 +2,12 @@
 .python-version
 
 # VS Code
-.vscode/
+.vscode
+
+#Packages
+dist
+build
+*.egg
+*.egg-info
+__pycache__
+requirements.txt
