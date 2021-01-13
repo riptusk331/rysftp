@@ -28,7 +28,17 @@ def _find_ry():
 
 
 class RyProxy:
-    """A simple proxy class to forward requests to an object"""
+    """A simple proxy class to forward requests to an object. The default
+    implementation assumes a ``dict`` to be the proxied object.
+    
+    This provides a global space that can be used by many threads. It can be
+    used as a packet buffer, where different threads can "trade" packets that
+    aren't addressed to them. It can also be used to store threading Events for
+    all our threads to listen to and play nicely together
+    
+    This is inspired by Werkzeug's 'LocalProxy' - I needed something like it,
+    but not always thread local.
+    """
 
     def __init__(self, proxied):
         object.__setattr__(self, "__obj__", proxied)
