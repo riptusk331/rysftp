@@ -36,8 +36,9 @@ class RyProxy:
     aren't addressed to them. It can also be used to store threading Events for
     all our threads to listen to and play nicely together
     
-    This is inspired by Werkzeug's 'LocalProxy' - I needed something like it,
-    but not always thread local.
+    This is inspired by Werkzeug's 'LocalProxy' - I really like the concept of
+    proxying a shared object, but the usage here called for something that's
+    not always thread local.
     """
 
     def __init__(self, proxied):
