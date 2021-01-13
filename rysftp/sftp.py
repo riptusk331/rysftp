@@ -97,7 +97,7 @@ class RySftp:
         self.password = kwargs.get('password', getenv('RYSFTP_PASSWORD'))
         self.hostname = kwargs.get('hostname', getenv('RYSFTP_HOSTNAME'))
         port = kwargs.get("port", getenv("RYSFTP_PORT"))
-        self.port = int(port) or 22
+        self.port = int(port or 22)
         self.config = _RySftpConfig(**kwargs)
 
         self._t = Transport((self.hostname, self.port))
