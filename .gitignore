@@ -4,10 +4,13 @@
 # VS Code
 .vscode
 
-#Packages
+# Packages
 dist
 build
 *.egg
 *.egg-info
 __pycache__
 requirements.txt
+
+# Testing / Environment
+.env
