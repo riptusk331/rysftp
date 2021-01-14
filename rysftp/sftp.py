@@ -12,7 +12,8 @@ from paramiko.sftp import (
     CMD_OPEN,
     CMD_READ,
     CMD_HANDLE,
-    CMD_STATUS,
+    CMD_STATUS, 
+    CMD_WRITE,
     SFTP_FLAG_CREATE,
     SFTP_FLAG_READ,
     SFTP_FLAG_TRUNC,
@@ -232,9 +233,14 @@ class RySftp:
             raise SFTPError("Expected data")
         return msg.get_string()
 
-    def write(self):
-        pass
-
+    def write(self, handle, data):
+        resp_type, msg = self._request(CMD_WRITE, handle, long(0), data)
+        if resp_type != CMD_STATUS:
+            raise SFTPError("Expected status")
+        status = msg.get_int()
+        if status != 0:
+            raise SFTPError("Write failed")
+        
     def close(self, handle):
         """
         Close the remote file
@@ -322,24 +328,20 @@ class RySftp:
     @secure
     def upload(self, file):
         """
-        DO NOT USE
+        Uploads a single file as specified in the passed `file`
+        parameter.
+
+        Args:
+            file (str/Path): file to download
         """
         with open(file, "rb") as fw:
+            handle = self.open(file, 'w')
             data = fw.read(32768)
-            log.debug(data)
-        # if not self.config.overwrite_server:
-        #     ls = self._sftp.listdir_attr()
-        #     remote = [f.filename for f in ls if S_ISREG(f.st_mode)]
-        #     # no_ul = [Path(f).name for f in uploads if Path(f).name in remote]
-        #     uploads = [f for f in uploads if Path(f).name not in remote]
-        # for f in uploads:
-        #     try:
-        #         self._sftp.put(f, Path(f).name)
-        #         # did_ul.append(Path(f).name)
-        #     except Exception:
-        #         # no_ul.append(Path(f).name)
-        #         log.exception("Unexpected upload error")
-        # return None
+            self.write(handle, data)
+            close = self.close(handle)
+            log.debug(f'closed new file "{file}" on server: {close}')
+        with self._lock:
+            self._uploaded.append(file)
 
     def encode_path(self, file):
         path = f"{self.config.remotedir}/{file}"
