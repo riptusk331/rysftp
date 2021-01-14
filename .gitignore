@@ -14,3 +14,4 @@ requirements.txt
 
 # Testing / Environment
 .env
+*.dat
