@@ -197,29 +197,6 @@ class RySftp:
             dirlist = [f"{self.config.remotedir}/{d}" for d in dirlist]
         return dirlist
 
-    @connects
-    def download(self, file):
-        """
-        Downloads a single file as specified in the passed remotefile
-        parameter. 'remotefile' must be the full absolute path to the
-        file on the server
-
-        Args:
-            file (str): file to download
-        """
-        localfile = Path(self.config.localdir, file)
-        if not self.config.overwrite_local and localfile.exists():
-            raise LocalFileExistsError(localfile)
-        with open(localfile, "wb") as fw:
-            handle = self.open(file)
-            data = self.read(handle, 32768)
-            fw.write(data)
-            closed = self.close(handle)
-            log.debug(f"remote file close status: {closed}")
-        with self._lock:
-            self._downloaded.append(str(localfile))
-        return str(localfile)
-
     def open(self, filename, mode="r"):
         """
         Open a remote file, ``filename``, on the server for reading
@@ -267,6 +244,29 @@ class RySftp:
             raise SFTPError("Error closing file")
         status = msg.get_int()
         return status
+
+    @connects
+    def download(self, file):
+        """
+        Downloads a single file as specified in the passed remotefile
+        parameter. 'remotefile' must be the full absolute path to the
+        file on the server
+
+        Args:
+            file (str): file to download
+        """
+        localfile = Path(self.config.localdir, file)
+        if not self.config.overwrite_local and localfile.exists():
+            raise LocalFileExistsError(localfile)
+        with open(localfile, "wb") as fw:
+            handle = self.open(file)
+            data = self.read(handle, 32768)
+            fw.write(data)
+            closed = self.close(handle)
+            log.debug(f"remote file close status: {closed}")
+        with self._lock:
+            self._downloaded.append(str(localfile))
+        return str(localfile)
 
     @connects
     def download_latest(self, dl_num=1, name_filter=[], **kwargs):
