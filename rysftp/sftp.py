@@ -344,6 +344,15 @@ class RySftp:
             self._uploaded.append(file)
 
     def encode_path(self, file):
+        """Take a standalone filename, append it to the currently set remote
+        directory, and convert it to a utf-8 bytestring
+
+        Args:
+            file (str/Path): standalone filename
+
+        Returns:
+            bytes: bytestring of remotedir/filename
+        """
         path = f"{self.config.remotedir}/{file}"
         return path.encode("utf-8")
 
