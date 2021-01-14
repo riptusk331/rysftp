@@ -268,6 +268,73 @@ class RySftp:
         status = msg.get_int()
         return status
 
+    @connects
+    def download_latest(self, dl_num=1, name_filter=[], **kwargs):
+        """
+        Downloads the latest # of files as given in <dl_num> from the
+        remote directory <remotedir>
+        """
+        remote_list = sorted(
+            self._sftp.listdir_attr(), key=lambda x: x.st_mtime, reverse=True
+        )
+        to_download = [
+            f.filename
+            for f in remote_list
+            if S_ISREG(f.st_mode) and _apply_name_filter(f.filename, name_filter)
+        ][:dl_num]
+        self._threaded_transfer(to_download)
+        return self._downloaded
+
+    def download_all(self, **kwargs):
+        """
+        Downloads all files in the given remote directory (remotedir).
+
+        This needs to be tested for what happens when there are no files
+        in the remote directory
+        """
+        return self.download_latest(None, **kwargs)
+
+    @connects
+    def upload_latest(self, ul_num=1):
+        """
+        DO NOT USE.
+        """
+        to_upload = sorted(
+            Path(self.config.localdir).glob("*?.*"),
+            key=lambda x: x.stat().st_mtime,
+            reverse=True,
+        )
+        self._threaded_upload_latest(to_upload)
+        return self.upload([ul for ul in to_upload if Path(ul).is_file()][:ul_num])
+
+    @connects
+    @secure
+    def upload(self, toUpload, **kwargs):
+        """
+        DO NOT USE
+        """
+        if isinstance(toUpload, str):
+            toUpload = [toUpload]
+        uploads = [f for f in toUpload if Path(f).is_file()]
+
+        if not self.config.overwrite_server:
+            ls = self._sftp.listdir_attr()
+            remote = [f.filename for f in ls if S_ISREG(f.st_mode)]
+            # no_ul = [Path(f).name for f in uploads if Path(f).name in remote]
+            uploads = [f for f in uploads if Path(f).name not in remote]
+        for f in uploads:
+            try:
+                self._sftp.put(f, Path(f).name)
+                # did_ul.append(Path(f).name)
+            except Exception:
+                # no_ul.append(Path(f).name)
+                log.exception("Unexpected upload error")
+        return None
+
+    def encode_path(self, file):
+        path = f"{self.config.remotedir}/{file}"
+        return path.encode("utf-8")
+
     def _request(self, cmd, *args):
         """Make a request to the server and wait for a response back
         Returns the response
@@ -343,73 +410,6 @@ class RySftp:
             threads.append(t)
             t.start()
         [t.join() for t in threads]
-    
-
-    @connects
-    def download_latest(self, dl_num=1, name_filter=[], **kwargs):
-        """
-        Downloads the latest # of files as given in <dl_num> from the
-        remote directory <remotedir>
-        """
-        remote_list = sorted(
-            self._sftp.listdir_attr(), key=lambda x: x.st_mtime, reverse=True
-        )
-        to_download = [
-            f.filename
-            for f in remote_list
-            if S_ISREG(f.st_mode) and _apply_name_filter(f.filename, name_filter)
-        ][:dl_num]
-        self._threaded_transfer(to_download)
-        return self._downloaded
-
-    def download_all(self, **kwargs):
-        """
-        Downloads all files in the given remote directory (remotedir).
-
-        This needs to be tested for what happens when there are no files
-        in the remote directory
-        """
-        return self.download_latest(None, **kwargs)
-
-    def upload_latest(self, ul_num=1):
-        """
-        DO NOT USE.
-        """
-        to_upload = sorted(
-            Path(self.config.localdir).glob("*?.*"),
-            key=lambda x: x.stat().st_mtime,
-            reverse=True,
-        )
-        self._threaded_upload_latest(to_upload)
-        return self.upload([ul for ul in to_upload if Path(ul).is_file()][:ul_num])
-
-    @connects
-    @secure
-    def upload(self, toUpload, **kwargs):
-        """
-        DO NOT USE
-        """
-        if isinstance(toUpload, str):
-            toUpload = [toUpload]
-        uploads = [f for f in toUpload if Path(f).is_file()]
-
-        if not self.config.overwrite_server:
-            ls = self._sftp.listdir_attr()
-            remote = [f.filename for f in ls if S_ISREG(f.st_mode)]
-            # no_ul = [Path(f).name for f in uploads if Path(f).name in remote]
-            uploads = [f for f in uploads if Path(f).name not in remote]
-        for f in uploads:
-            try:
-                self._sftp.put(f, Path(f).name)
-                # did_ul.append(Path(f).name)
-            except Exception:
-                # no_ul.append(Path(f).name)
-                log.exception("Unexpected upload error")
-        return None
-
-    def encode_path(self, file):
-        path = f"{self.config.remotedir}/{file}"
-        return path.encode("utf-8")
 
 
 def _apply_name_filter(name, name_list):
