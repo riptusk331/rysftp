@@ -1,5 +1,5 @@
 import logging
-from os import getenv, name
+from os import getenv
 from threading import Lock, Thread, Event
 from stat import S_ISREG
 from functools import wraps
@@ -232,6 +232,9 @@ class RySftp:
             raise SFTPError("Expected data")
         return msg.get_string()
 
+    def write(self):
+        pass
+
     def close(self, handle):
         """
         Close the remote file
@@ -303,38 +306,40 @@ class RySftp:
             name_filter = ["?."]
         to_upload = []
         for filter in name_filter:
-            to_upload.append(Path(self.config.localdir).glob(f"*{filter}*"))
+            to_upload.extend(
+                [p for p in Path(self.config.localdir).glob(f"*{filter}*")]
+                )
         to_upload = sorted(
             to_upload,
             key=lambda x: x.stat().st_mtime,
             reverse=True,
-        )
+        )[:ul_num]
+        log.debug(to_upload)
         self._threaded_transfer('upload', to_upload)
         return self._uploaded
 
     @connects
     @secure
-    def upload(self, toUpload, **kwargs):
+    def upload(self, file):
         """
         DO NOT USE
         """
-        if isinstance(toUpload, str):
-            toUpload = [toUpload]
-        uploads = [f for f in toUpload if Path(f).is_file()]
-
-        if not self.config.overwrite_server:
-            ls = self._sftp.listdir_attr()
-            remote = [f.filename for f in ls if S_ISREG(f.st_mode)]
-            # no_ul = [Path(f).name for f in uploads if Path(f).name in remote]
-            uploads = [f for f in uploads if Path(f).name not in remote]
-        for f in uploads:
-            try:
-                self._sftp.put(f, Path(f).name)
-                # did_ul.append(Path(f).name)
-            except Exception:
-                # no_ul.append(Path(f).name)
-                log.exception("Unexpected upload error")
-        return None
+        with open(file, "rb") as fw:
+            data = fw.read(32768)
+            log.debug(data)
+        # if not self.config.overwrite_server:
+        #     ls = self._sftp.listdir_attr()
+        #     remote = [f.filename for f in ls if S_ISREG(f.st_mode)]
+        #     # no_ul = [Path(f).name for f in uploads if Path(f).name in remote]
+        #     uploads = [f for f in uploads if Path(f).name not in remote]
+        # for f in uploads:
+        #     try:
+        #         self._sftp.put(f, Path(f).name)
+        #         # did_ul.append(Path(f).name)
+        #     except Exception:
+        #         # no_ul.append(Path(f).name)
+        #         log.exception("Unexpected upload error")
+        # return None
 
     def encode_path(self, file):
         path = f"{self.config.remotedir}/{file}"
