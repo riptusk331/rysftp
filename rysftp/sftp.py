@@ -336,13 +336,14 @@ class RySftp:
             # Add a timeout here eventually to prevent deadlocking
             _event_stack[wantsback].wait()
 
-    def _threaded_download_latest(self, to_download):
+    def _threaded_transfer(self, to_transfer):
         threads = []
-        for dl in to_download:
-            t = Thread(target=self.download, args=(dl,), kwargs={"thread": True})
+        for xfr in to_transfer:
+            t = Thread(target=self.download, args=(xfr,), kwargs={"thread": True})
             threads.append(t)
             t.start()
         [t.join() for t in threads]
+    
 
     @connects
     def download_latest(self, dl_num=1, name_filter=[], **kwargs):
@@ -358,7 +359,7 @@ class RySftp:
             for f in remote_list
             if S_ISREG(f.st_mode) and _apply_name_filter(f.filename, name_filter)
         ][:dl_num]
-        self._threaded_download_latest(to_download)
+        self._threaded_transfer(to_download)
         return self._downloaded
 
     def download_all(self, **kwargs):
@@ -379,6 +380,7 @@ class RySftp:
             key=lambda x: x.stat().st_mtime,
             reverse=True,
         )
+        self._threaded_upload_latest(to_upload)
         return self.upload([ul for ul in to_upload if Path(ul).is_file()][:ul_num])
 
     @connects
