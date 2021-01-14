@@ -1,5 +1,5 @@
 import logging
-from os import getenv
+from os import getenv, name
 from threading import Lock, Thread, Event
 from stat import S_ISREG
 from functools import wraps
@@ -295,12 +295,17 @@ class RySftp:
         return self.download_latest(None, **kwargs)
 
     @connects
-    def upload_latest(self, ul_num=1):
+    def upload_latest(self, ul_num=1, name_filter=[], **kwargs):
         """
-        DO NOT USE.
+        Uploads the latest # of files, specified by ``dl_num``
         """
+        if not name_filter:
+            name_filter = ["?."]
+        to_upload = []
+        for filter in name_filter:
+            to_upload.append(Path(self.config.localdir).glob(f"*{filter}*"))
         to_upload = sorted(
-            Path(self.config.localdir).glob("*?.*"),
+            to_upload,
             key=lambda x: x.stat().st_mtime,
             reverse=True,
         )
