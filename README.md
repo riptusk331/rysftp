@@ -34,6 +34,7 @@ import rysftp
 ry = RySftp()
 with ry("home/downloads"):
     ry.download_latest(100)
+    ry.upload_latest(4)
 
 ```
 
