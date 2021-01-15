@@ -29,7 +29,7 @@ pip install rysftp
 RySftp aims to be simple. Here is a barebones usage example:
 
 ```python
-from rysft import RySftp
+from rysftp import RySftp
 
 ry = RySftp()
 with ry("home/downloads"):
