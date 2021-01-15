@@ -38,5 +38,8 @@ with ry("home/downloads"):
 
 ```
 
+## Documentation
+[Documentation](https://rysftp.readthedocs.io/en/latest/)
+
 ## Contributing
 Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.

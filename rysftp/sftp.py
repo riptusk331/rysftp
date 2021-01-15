@@ -331,8 +331,7 @@ class RySftp:
         Uploads a single file as specified in the passed `file`
         parameter.
 
-        Args:
-            file (str/Path): file to download
+        :parama file: file to download
         """
         with open(file, "rb") as fw:
             handle = self.open(file, 'w')
