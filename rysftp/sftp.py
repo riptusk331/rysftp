@@ -342,6 +342,34 @@ class RySftp:
         with self._lock:
             self._uploaded.append(file)
 
+    def encrypt(self, to_encrypt, recipients, fingerprint, output_dir=None, overwrite=True):
+        output = Path(output_dir, f"{Path(f).name}.gpg")
+        with open(to_encrypt, "rb") as f:
+            result = self.gpg.encrypt_file(
+                recipients=recipients,
+                armor=False,
+                file=f,
+                output=str(output),
+                sign=fingerprint,
+                passphrase=self.passphrase,
+            )
+        if not result.ok:
+            raise RuntimeError('Bad Encryption')
+        return result
+
+    def decrypt(self, to_decrypt, output_dir=None, overwrite=False):
+        with open(f, "rb") as open_f:
+            result = self.gpg.decrypt_file(
+                file=open_f,
+                passphrase=self.passphrase,
+                output=(
+                    f"{self.tgt_dir}/" f"{no_extension[toDecrypt.index(f)]}"
+                ),
+            )
+        if not result.ok:
+            raise RuntimeError("Bad Decryption")
+        return result
+
     def encode_path(self, file):
         """Take a standalone filename, append it to the currently set remote
         directory, and convert it to a utf-8 bytestring
