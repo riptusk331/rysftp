@@ -51,8 +51,10 @@ class long(int):
 
 class _RySftpConfig:
     def __init__(self, **kwargs):
-        self.remotedir = kwargs.get("remotedir", ".")
-        self.localdir = kwargs.get("localdir", ".")
+        remotedir = kwargs.get("remotedir", getenv("RYSFTP_REMOTEDIR"))
+        self.remotedir = remotedir or "."
+        localdir = kwargs.get("localdir", getenv("RYSFTP_LOCALDIR"))
+        self.localdir = localdir or "."
         self.overwrite_local = kwargs.get("overwrite_local", True)
         self.overwrite_remote = kwargs.get("overwrite_remote", True)
 
@@ -343,7 +345,7 @@ class RySftp:
             self._uploaded.append(file)
 
     def encrypt(self, to_encrypt, recipients, fingerprint, output_dir=None, overwrite=True):
-        output = Path(output_dir, f"{Path(f).name}.gpg")
+        output = Path(output_dir, f"{Path(to_encrypt).name}.gpg")
         with open(to_encrypt, "rb") as f:
             result = self.gpg.encrypt_file(
                 recipients=recipients,
@@ -358,12 +360,12 @@ class RySftp:
         return result
 
     def decrypt(self, to_decrypt, output_dir=None, overwrite=False):
-        with open(f, "rb") as open_f:
+        with open(to_decrypt, "rb") as open_f:
             result = self.gpg.decrypt_file(
                 file=open_f,
                 passphrase=self.passphrase,
                 output=(
-                    f"{self.tgt_dir}/" f"{no_extension[toDecrypt.index(f)]}"
+                    # f"{self.tgt_dir}/" f"{no_extension[toDecrypt.index(f)]}"
                 ),
             )
         if not result.ok:
