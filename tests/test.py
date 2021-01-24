@@ -20,11 +20,10 @@ logging.basicConfig(
 ry = RySftp()
 
 how_much = int(sys.argv[1])
-remotedir = getenv("RYSFTP_REMOTEDIR")
-with ry(remotedir):
-    # t1 = time.time()
-    # whatwegot = ry.download_latest(how_much)
-    # t2 = time.time()
+with ry():
+    t1 = time.time()
+    whatwegot = ry.download_latest(how_much)
+    t2 = time.time()
 
     # remote = sorted(ry._sftp.listdir_attr(), key=lambda x: x.st_mtime, reverse=True)
     # to_download = [f.filename for f in remote if S_ISREG(f.st_mode)][:how_much]
@@ -35,7 +34,7 @@ with ry(remotedir):
     # logging.debug(f"Asynchronous Download: {len(whatwegot)} files in {t2-t1} seconds")
     # logging.debug(f"Synchronous Download: {len(to_download)} files in {t4-t3} seconds")
     
-    t5 = time.time()
-    uploaded = ry.upload_latest(how_much, ['.dat'])
-    t6 = time.time()
-    logging.debug(f"Asynchronous Upload: {len(uploaded)} files in {t6-t5} seconds")
+    # t5 = time.time()
+    # uploaded = ry.upload_latest(how_much, ['.dat'])
+    # t6 = time.time()
+    # logging.debug(f"Asynchronous Upload: {len(uploaded)} files in {t6-t5} seconds")
