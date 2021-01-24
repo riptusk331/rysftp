@@ -344,26 +344,26 @@ class RySftp:
         with self._lock:
             self._uploaded.append(file)
 
-    def encrypt(self, to_encrypt, recipients, fingerprint, output_dir=None, overwrite=True):
-        output = Path(output_dir, f"{Path(to_encrypt).name}.gpg")
+    def encrypt(self, to_encrypt, recipients, fingerprint):
+        output = Path(self.config.localdir, f"{Path(to_encrypt).name}.gpg")
         with open(to_encrypt, "rb") as f:
-            result = self.gpg.encrypt_file(
+            result = self._gpg.encrypt_file(
                 recipients=recipients,
                 armor=False,
                 file=f,
                 output=str(output),
                 sign=fingerprint,
-                passphrase=self.passphrase,
+                passphrase=self.config.gpg_passphrase,
             )
         if not result.ok:
-            raise RuntimeError('Bad Encryption')
+            raise RuntimeError('Error encrypting')
         return result
 
     def decrypt(self, to_decrypt, output_dir=None, overwrite=False):
         with open(to_decrypt, "rb") as open_f:
-            result = self.gpg.decrypt_file(
+            result = self._gpg.decrypt_file(
                 file=open_f,
-                passphrase=self.passphrase,
+                passphrase=self.config.gpg_passphrase,
                 output=(
                     # f"{self.tgt_dir}/" f"{no_extension[toDecrypt.index(f)]}"
                 ),
