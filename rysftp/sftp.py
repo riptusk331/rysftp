@@ -1,16 +1,19 @@
 import logging
 from os import getenv
 from threading import Lock, Thread, Event
+from concurrent.futures import ThreadPoolExecutor
 from stat import S_ISREG
 from functools import wraps
 from pathlib import Path
 from paramiko import Transport, SFTPClient, Message
 from paramiko.sftp_attr import SFTPAttributes
 from paramiko.sftp import (
+    CMD_ATTRS,
     CMD_CLOSE,
     CMD_DATA,
     CMD_OPEN,
     CMD_READ,
+    CMD_FSTAT,
     CMD_HANDLE,
     CMD_STATUS, 
     CMD_WRITE,
@@ -43,8 +46,7 @@ from .errors import (
 
 
 log = logging.getLogger(__name__)
-
-
+MAX_REQUEST_SIZE = 32768
 class long(int):
     pass
 
@@ -199,6 +201,16 @@ class RySftp:
         if full_remotepath:
             dirlist = [f"{self.config.remotedir}/{d}" for d in dirlist]
         return dirlist
+    
+    def fstat(self, handle):
+        """
+        Get stats about a file on the remote server via it's handle
+        
+        """
+        resp_type, msg = self._request(CMD_FSTAT, handle)
+        if resp_type != CMD_ATTRS:
+            raise SFTPError("Expected back attributes")
+        return SFTPAttributes._from_msg(msg)
 
     def open(self, filename, mode="r"):
         """
@@ -221,16 +233,16 @@ class RySftp:
             raise SFTPError("Expected remote file handle")
         return msg.get_binary()
 
-    def read(self, handle, size):
+    @connects
+    def read(self, handle, size, offset=0):
         """
         Read ```size``` bytes from the remote file indicated by the
         server supplied ``handle``
 
-        Args:
-            handle (str): remote file handle to read
-            size (int): bytes to read
+        :param str handle: remote file handle to read
+        :param int size: bytes to read
         """
-        resp_type, msg = self._request(CMD_READ, handle, long(0), size)
+        resp_type, msg = self._request(CMD_READ, handle, long(offset), size)
         if resp_type != CMD_DATA:
             raise SFTPError("Expected data")
         return msg.get_string()
@@ -271,8 +283,12 @@ class RySftp:
             raise LocalFileExistsError(localfile)
         with open(localfile, "wb") as fw:
             handle = self.open(file)
-            data = self.read(handle, 32768)
-            fw.write(data)
+            file_size = self.fstat(handle).st_size
+            if file_size < MAX_REQUEST_SIZE:
+                data = self.read(handle, file_size)
+                fw.write(data)
+            else:
+                self._threaded_reader(handle, fw, file_size)
             closed = self.close(handle)
             log.debug(f"remote file close status: {closed}")
         with self._lock:
@@ -461,6 +477,15 @@ class RySftp:
             t.start()
         [t.join() for t in threads]
 
+    def _threaded_reader(self, handle, writer, size):
+        futures = []
+        with ThreadPoolExecutor() as executor:
+            n = 0
+            while n < size:
+                chunk = min(MAX_REQUEST_SIZE, size - n)
+                futures.append(executor.submit(self.read, handle, chunk, n, thread=True))
+                n += chunk
+        [writer.write(f.result()) for f in futures]
 
 def _apply_name_filter(name, name_list):
     if not name_list:
