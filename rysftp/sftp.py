@@ -108,7 +108,7 @@ class RySftp:
 
         self._t = Transport((self.hostname, self.port))
         # enable ultra debugging while building
-        self._t.set_hexdump(False)
+        self._t.set_hexdump(True)
 
         self._sftp = None
         self._gpg = self.gpg_instance()
@@ -148,7 +148,7 @@ class RySftp:
 
     def connects(f):
         @wraps(f)
-        @catch_errors
+        # @catch_errors
         def wrapped(self, *args, **kwargs):
             ry_ctx = _ry_ctx_stack.top
             # If we're in a background thread, push an app context
@@ -338,6 +338,7 @@ class RySftp:
         """
         Uploads the latest # of files, specified by ``dl_num``
         """
+        log.debug(f"UPLOADING THE LATEST {ul_num} FILES")
         if not name_filter:
             name_filter = ["?."]
         to_upload = []
@@ -354,7 +355,6 @@ class RySftp:
         return self._uploaded
 
     @connects
-    @secure
     def upload(self, file):
         """
         Uploads a single file as specified in the passed `file`
@@ -370,6 +370,7 @@ class RySftp:
                 self.write(handle, data)
             else:
                 self._threaded_writer(handle, fr, file_size)
+
             close = self.close(handle)
             log.debug(f'closed new file "{file}" on server: {close}')
         with self._lock:
@@ -471,14 +472,18 @@ class RySftp:
         resp_type, data = self._increment_response()
         msg = Message(data)
         req_num = msg.get_int()
-        with self._lock:
-            if req_num == wantsback and req_num in lo["expects"]:
-                log.debug(f'Received expected request #{req_num}')
-                del lo["expects"][req_num]
-                return resp_type, msg
-            _request_buffer[req_num] = (resp_type, msg)
-            log.debug(f'Received request #{req_num}, added to buffer, waking up')
-            _event_stack[req_num].set()
+        self._lock.acquire()
+        log.debug('Locked!')
+        if req_num == wantsback and req_num in lo["expects"]:
+            log.debug(f'Received expected request #{req_num}')
+            del lo["expects"][req_num]
+            self._lock.release()
+            log.debug("Unlocked!")
+            return resp_type, msg
+        _request_buffer[req_num] = (resp_type, msg)
+        log.debug(f'Received request #{req_num}, added to buffer, waking up')
+        _event_stack[req_num].set()
+        self._lock.release()
         while True:
             if buffer:= self._check_buffer(wantsback):
                 return buffer
@@ -498,15 +503,17 @@ class RySftp:
         with self._lock:
             resp_type, data = self._sftp._read_packet()
             g["resp_num"] += 1
-            return resp_type, data
+        return resp_type, data
 
     def _threaded_transfer(self, way, to_transfer):
         threads = []
+        self._sftp.sock.settimeout(5.0)
         for xfr in to_transfer:
             t = Thread(target=getattr(self, way), args=(xfr,), kwargs={"thread": True})
             threads.append(t)
             t.start()
         [t.join() for t in threads]
+        # self._sftp.sock.setblocking(1)
 
     def _threaded_reader(self, handle, writer, size):
         futures = []
@@ -520,13 +527,14 @@ class RySftp:
 
     def _threaded_writer(self, handle, reader, size):
         futures = []
+        
         with ThreadPoolExecutor() as executor:
             pos = 0
             while pos < size:
                 data = reader.read(MAX_REQUEST_SIZE)
                 futures.append(executor.submit(self.write, handle, data, pos, thread=True))
                 pos = reader.tell()
-                
+                log.debug(pos)
 
 def _apply_name_filter(name, name_list):
     if not name_list:
