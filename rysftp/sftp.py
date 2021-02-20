@@ -1,7 +1,9 @@
 import logging
+import math
+import time
 from os import getenv
 import os
-from threading import Lock, Thread, Event
+from threading import Lock, Thread
 from concurrent.futures import ThreadPoolExecutor
 from stat import S_ISREG
 from functools import wraps
@@ -16,7 +18,7 @@ from paramiko.sftp import (
     CMD_READ,
     CMD_FSTAT,
     CMD_HANDLE,
-    CMD_STATUS, 
+    CMD_STATUS,
     CMD_WRITE,
     SFTP_FLAG_CREATE,
     SFTP_FLAG_READ,
@@ -35,7 +37,7 @@ from .ctx import (
     _ry_ctx_stack,
     _ry_ctx_err_msg,
     _request_buffer,
-    _event_stack,
+    _request_stack,
     g,
     lo,
 )
@@ -47,7 +49,9 @@ from .errors import (
 
 
 log = logging.getLogger(__name__)
-MAX_REQUEST_SIZE = 32768
+MAX_PAYLOAD_SIZE = 32768
+
+
 class long(int):
     pass
 
@@ -99,18 +103,18 @@ class RySftp:
 
     @catch_errors
     def __init__(self, **kwargs):
-        self.user = kwargs.get('user', getenv('RYSFTP_USER'))
-        self.password = kwargs.get('password', getenv('RYSFTP_PASSWORD'))
-        self.hostname = kwargs.get('hostname', getenv('RYSFTP_HOSTNAME'))
+        self.user = kwargs.get("user", getenv("RYSFTP_USER"))
+        self.password = kwargs.get("password", getenv("RYSFTP_PASSWORD"))
+        self.hostname = kwargs.get("hostname", getenv("RYSFTP_HOSTNAME"))
         port = kwargs.get("port", getenv("RYSFTP_PORT"))
         self.port = int(port or 22)
         self.config = _RySftpConfig(**kwargs)
 
         self._t = Transport((self.hostname, self.port))
-        # enable ultra debugging while building
-        self._t.set_hexdump(True)
+        self._t.set_hexdump(False)
 
         self._sftp = None
+        self._channel = None
         self._gpg = self.gpg_instance()
         self._connected = False
         self._lock = Lock()
@@ -127,6 +131,7 @@ class RySftp:
     def __enter__(self):
         self._t.connect(None, self.user, self.password)
         self._sftp = SFTPClient.from_transport(self._t)
+        self._channel = self.ssh_channel()
         self._connected = True
         self._sftp.chdir(self.config.remotedir)
 
@@ -146,16 +151,21 @@ class RySftp:
         if ctx is not None:
             ctx.pop()
 
+    def ssh_channel(self):
+        """Get the paramiko Channel from the underlying sftp client
+
+        """
+        return self._sftp.get_channel()
+
     def connects(f):
         @wraps(f)
-        # @catch_errors
+        @catch_errors
         def wrapped(self, *args, **kwargs):
             ry_ctx = _ry_ctx_stack.top
-            # If we're in a background thread, push an app context
             if kwargs.pop("thread", False) is True:
-                log.debug("Running In Child Thread")
                 with self.ry_context():
-                    return f(self, *args, **kwargs)
+                    x = f(self, *args, **kwargs)
+                    return x
             if ry_ctx is not None and ry_ctx.ry == self and self._connected:
                 return f(self, *args, **kwargs)
             raise OutsideAppContextError(_ry_ctx_err_msg)
@@ -202,14 +212,14 @@ class RySftp:
         if full_remotepath:
             dirlist = [f"{self.config.remotedir}/{d}" for d in dirlist]
         return dirlist
-    
+
     def fstat(self, handle):
         """
         Get stats about a file on the remote server via it's handle
-        
+
         """
-        log.debug("Make a stat request")
-        resp_type, msg = self._request(CMD_FSTAT, handle)
+        log.debug(f"stat request: [{handle}]")
+        resp_type, msg = self._blocking_request(CMD_FSTAT, handle)
         if resp_type != CMD_ATTRS:
             raise SFTPError("Expected back attributes")
         return SFTPAttributes._from_msg(msg)
@@ -230,8 +240,7 @@ class RySftp:
         if "w" in mode:
             pflags |= SFTP_FLAG_WRITE | SFTP_FLAG_CREATE | SFTP_FLAG_TRUNC
         attrs = SFTPAttributes()
-        log.debug('Make an open request')
-        resp_type, msg = self._request(CMD_OPEN, filename, pflags, attrs)
+        resp_type, msg = self._blocking_request(CMD_OPEN, filename, pflags, attrs)
         if resp_type != CMD_HANDLE:
             raise SFTPError("Expected remote file handle")
         return msg.get_binary()
@@ -245,11 +254,11 @@ class RySftp:
         :param str handle: remote file handle to read
         :param int size: bytes to read
         """
-        log.debug('Make a read request')
-        resp_type, msg = self._request(CMD_READ, handle, long(offset), size)
-        if resp_type != CMD_DATA:
-            raise SFTPError("Expected data")
-        return msg.get_string()
+        log.debug(f"read request: [{handle}] at byte [{offset}]")
+        req_num = self._request(type(None), CMD_READ, handle, long(offset), size)
+        if req_num:
+            _request_stack[req_num] = (offset, size)
+        return req_num
 
     @connects
     def write(self, handle, data, offset=0):
@@ -257,27 +266,22 @@ class RySftp:
         Read ```data```  to the remote file indicated by ``handle``
 
         :param str handle: remote file handle to write to
-        :param bytes data: data to write 
+        :param bytes data: data to write
         """
-        log.debug("Make a write request")
-        resp_type, msg = self._request(CMD_WRITE, handle, long(offset), data)
-        if resp_type != CMD_STATUS:
-            raise SFTPError("Expected status")
-        status = msg.get_int()
-        if status != 0:
-            raise SFTPError(f"Write failed. Status: {status}")
-        
+        log.debug(f'write request: [{handle}] at byte {offset}')
+        return self._request(type(None), CMD_WRITE, handle, long(offset), data) 
+
     def close(self, handle):
         """
         Close the remote file
-
-        Args:
-            handle (str): remote file handle to close
+        
+        :param str handle: remote file handle to close
         """
-        resp_type, msg = self._request(CMD_CLOSE, handle)
+        resp_type, msg = self._blocking_request(CMD_CLOSE, handle)
         if resp_type != CMD_STATUS:
             raise SFTPError("Error closing file")
         status = msg.get_int()
+        log.debug(f'closed [{handle}] on server: {status}')
         return status
 
     @connects
@@ -287,8 +291,7 @@ class RySftp:
         parameter. 'remotefile' must be the full absolute path to the
         file on the server
 
-        Args:
-            file (str): file to download
+        :param str file: file to download
         """
         localfile = Path(self.config.localdir, file)
         if not self.config.overwrite_local and localfile.exists():
@@ -296,13 +299,11 @@ class RySftp:
         with open(localfile, "wb") as fw:
             handle = self.open(file)
             file_size = self.fstat(handle).st_size
-            if file_size < MAX_REQUEST_SIZE:
-                data = self.read(handle, file_size)
-                fw.write(data)
-            else:
-                self._threaded_reader(handle, fw, file_size)
-            closed = self.close(handle)
-            log.debug(f"remote file close status: {closed}")
+            t1 = time.time()
+            self._threaded_reader(handle, fw, file_size)
+            t2 = time.time()
+        self.close(handle)
+        log.debug(f'download completed in {t2-t1} seconds at {round(file_size/(t2-t1)/1000, 2)} kB/s')
         with self._lock:
             self._downloaded.append(str(localfile))
         return str(localfile)
@@ -321,7 +322,7 @@ class RySftp:
             for f in remote_list
             if S_ISREG(f.st_mode) and _apply_name_filter(f.filename, name_filter)
         ][:dl_num]
-        self._threaded_transfer('download', to_download)
+        [self.download(d) for d in to_download]
         return self._downloaded
 
     def download_all(self, **kwargs):
@@ -343,15 +344,13 @@ class RySftp:
             name_filter = ["?."]
         to_upload = []
         for filter in name_filter:
-            to_upload.extend(
-                [p for p in Path(self.config.localdir).glob(f"*{filter}*")]
-                )
+            to_upload.extend([p for p in Path(self.config.localdir).glob(f"*{filter}*")])
         to_upload = sorted(
             to_upload,
             key=lambda x: x.stat().st_mtime,
             reverse=True,
         )[:ul_num]
-        self._threaded_transfer('upload', to_upload)
+        [self.upload(u) for u in to_upload]
         return self._uploaded
 
     @connects
@@ -363,16 +362,13 @@ class RySftp:
         :parama file: file to download
         """
         with open(file, "rb") as fr:
-            handle = self.open(Path(file).name, 'w')
             file_size = os.fstat(fr.fileno()).st_size
-            if file_size < MAX_REQUEST_SIZE:
-                data = fr.read(file_size)
-                self.write(handle, data)
-            else:
-                self._threaded_writer(handle, fr, file_size)
-
-            close = self.close(handle)
-            log.debug(f'closed new file "{file}" on server: {close}')
+            handle = self.open(Path(file).name, "w")
+            t1 = time.time()
+            self._threaded_writer(handle, fr, file_size)
+            t2 = time.time()
+        close = self.close(handle)
+        log.debug(f'upload completed in {t2-t1} seconds at {round(file_size/(t2-t1)/1000, 2)} kB/s')
         with self._lock:
             self._uploaded.append(file)
 
@@ -388,7 +384,7 @@ class RySftp:
                 passphrase=self.config.gpg_passphrase,
             )
         if not result.ok:
-            raise RuntimeError('Error encrypting')
+            raise RuntimeError("Error encrypting")
         return result
 
     def decrypt(self, to_decrypt, output_dir=None, overwrite=False):
@@ -417,19 +413,18 @@ class RySftp:
         path = f"{self.config.remotedir}/{file}"
         return path.encode("utf-8")
 
-    def _request(self, cmd, *args):
-        """Make a request to the server and wait for a response back
-        Returns the response
+    def _blocking_request(self, cmd, *args):
+        """Make a request to the server and wait for a response back, blocking
+        until it's received. Returns the response
 
-        Args:
-            cmd (int): SSH FTP packet type
-            args: additional contents of packet
+        param int cmd: SSH FTP packet type
+        param args: additional contents of packet
 
         """
-        req_num = self._async_request(type(None), cmd, *args)
-        return self._async_response(req_num)
+        req_num = self._request(type(None), cmd, *args)
+        return self._get_response(req_num)
 
-    def _async_request(self, expects, cmd, *args):
+    def _request(self, expects, cmd, *args):
         """
         Build an SSH FTP packet and send it to the server
 
@@ -443,98 +438,76 @@ class RySftp:
                 req_num = g["req_num"]
             else:
                 g["req_num"] = req_num = 0
-            if not getattr(g, "resp_num", False):
-                g["resp_num"] = 0
             msg = Message()
             msg.add_int(req_num)
             [_add_to_message(msg, a) for a in args]
-            lo["expects"] = {req_num: expects}
             g["req_num"] += 1
-            _event_stack[req_num] = Event()
-        log.debug(f'Sending request #{req_num}')
-        self._sftp._send_packet(cmd, msg)
-        log.debug(f'Sent request #{req_num}')
+            self._sftp._send_packet(cmd, msg)
         return req_num
 
-    def _async_response(self, wantsback=None):
+    def _get_response(self, wantsback=None):
         """
         Read a packet and then process it into a ``Message`` object
 
         Returns the SSH packet type value of the response, along with
         the response itself wrapped in a Paramiko ``Message`` object
 
-        Args:
-            wantsback (int): the request # associated with the packet we're
-            expecting back
+        :param int wantsback: the expected request #
         """
-        if buffer:= self._check_buffer(wantsback):
-            return buffer
-        resp_type, data = self._increment_response()
-        msg = Message(data)
+        resp_type, msg = self._increment_response()
         req_num = msg.get_int()
-        self._lock.acquire()
-        log.debug('Locked!')
-        if req_num == wantsback and req_num in lo["expects"]:
-            log.debug(f'Received expected request #{req_num}')
-            del lo["expects"][req_num]
-            self._lock.release()
-            log.debug("Unlocked!")
+        if req_num == wantsback:
             return resp_type, msg
-        _request_buffer[req_num] = (resp_type, msg)
-        log.debug(f'Received request #{req_num}, added to buffer, waking up')
-        _event_stack[req_num].set()
-        self._lock.release()
-        while True:
-            if buffer:= self._check_buffer(wantsback):
-                return buffer
-            log.debug('Going to sleep')
-            _event_stack[wantsback].wait()
 
-    def _check_buffer(self, request):
-        with self._lock:
-            if request in _request_buffer:
-                log.debug(f'Request #{request} was in buffer')
-                resp_type, data = _request_buffer[request]
-                del _request_buffer[request]
-                return resp_type, data   
-            log.debug(f'Request # {request} is not in buffer')
-        
     def _increment_response(self):
         with self._lock:
             resp_type, data = self._sftp._read_packet()
-            g["resp_num"] += 1
-        return resp_type, data
+        return resp_type, Message(data)
 
     def _threaded_transfer(self, way, to_transfer):
         threads = []
-        self._sftp.sock.settimeout(5.0)
         for xfr in to_transfer:
             t = Thread(target=getattr(self, way), args=(xfr,), kwargs={"thread": True})
             threads.append(t)
             t.start()
         [t.join() for t in threads]
-        # self._sftp.sock.setblocking(1)
 
     def _threaded_reader(self, handle, writer, size):
         futures = []
+        with self._lock:
+            lo["expected_responses"] = math.ceil(size / MAX_PAYLOAD_SIZE)
         with ThreadPoolExecutor() as executor:
             n = 0
             while n < size:
-                chunk = min(MAX_REQUEST_SIZE, size - n)
+                chunk = min(MAX_PAYLOAD_SIZE, size - n)
                 futures.append(executor.submit(self.read, handle, chunk, n, thread=True))
                 n += chunk
-        [writer.write(f.result()) for f in futures]
+            requests = [f.result() for f in futures]
+        for r in requests:
+            resp_type, data = self._sftp._read_packet()
+            if resp_type != CMD_DATA:
+                raise SFTPError("Expected data")
+            msg = Message(data)
+            resp_num = msg.get_int()
+            if resp_num in _request_stack:
+                writer.seek(_request_stack[resp_num][0])
+                log.debug(f'write local at byte {_request_stack[resp_num][0]}')
+                writer.write(msg.get_string())
 
     def _threaded_writer(self, handle, reader, size):
         futures = []
-        
+        with self._lock:
+            lo["expected_responses"] = math.ceil(size / MAX_PAYLOAD_SIZE)
         with ThreadPoolExecutor() as executor:
             pos = 0
             while pos < size:
-                data = reader.read(MAX_REQUEST_SIZE)
-                futures.append(executor.submit(self.write, handle, data, pos, thread=True))
+                data = reader.read(MAX_PAYLOAD_SIZE)
+                futures.append(
+                    executor.submit(self.write, handle, data, pos, thread=True)
+                )
                 pos = reader.tell()
-                log.debug(pos)
+        for i in range(0, lo["expected_responses"]):
+            resp_type, data = self._sftp._read_packet()
 
 def _apply_name_filter(name, name_list):
     if not name_list:
