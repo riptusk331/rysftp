@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
     setuptools.setup(
         name="RySftp",
-        version="0.0.9",
+        version="0.0.10",
         author="Ryan P Joyce",
         author_email="ryan.joyce.88@gmail.com",
         description="simple, asynchronous sftp operations",
