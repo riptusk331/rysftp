@@ -79,9 +79,15 @@ class RyProxy:
 
     def __iter__(self):
         return iter(self.__obj__.items())
+    
+    def __repr__(self):
+        return self.__obj__.items()
+    
+    def __len__(self):
+        return len(self.__obj__.items())
 
 
-_event_stack = RyProxy({})
+_request_stack = RyProxy({})
 _request_buffer = RyProxy({})
 _ry_ctx_stack = LocalStack()
 current_ry = LocalProxy(_find_ry)
